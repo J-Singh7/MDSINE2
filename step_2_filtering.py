@@ -2,7 +2,7 @@
 
 Author: David Kaplan
 Date: 11/18/20
-MDSINE2 version: 4.0.4
+MDSINE2 version: 4.0.6
 
 Methodology
 -----------
@@ -18,33 +18,13 @@ Methodology
    Filter out the Taxas/OTUs that do not have enough dynamical information for 
    effective inference.
 3) Save the filtered dataset
-
-Parameters
-----------
---dataset, -i : str
-    This is the file location for the dataset you're going to filter.
-    This is the output of `step_1_parse_data`.
---outfile, -o : str
-    This is the location to save the filtered dataset.
---dtype, -d : str
-    This is what data we are thresholding. Options are 'raw' (counts), 'rel' (relative
-    abundance), or 'abs' (absolute abundance).
---threshold, -t : float, int
-    This is the threshold the taxa must pass at each timepoint
---min-num-consecutive, -m : int
-    Number of consecutive timepoints to look for in a row
---min-num-subjects, -s : int
-    This is the minimum number of subjects this needs to be valid for.
---colonization-time, -c : int
-    This is the time we are looking after for colonization. If None we assume 
-    there is no colonization time.
 '''
 import argparse
 import mdsine2 as md2
 import logging
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(usage=__doc__)
     parser.add_argument('--dataset', '-i', type=str, dest='dataset',
         help='This is the Gibson dataset that you want to parse')
     parser.add_argument('--outfile', '-o', type=str, dest='outfile',
@@ -71,4 +51,6 @@ if __name__ == '__main__':
         min_num_consecutive=args.min_num_consecutive,
         min_num_subjects=args.min_num_subjects,
         colonization_time=args.colonization_time)
+
+    print('{} taxas left in {}'.format(len(study.taxas), study.name))
     study.save(args.outfile)

@@ -8,7 +8,7 @@ import argparse
 import os
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(usage=__doc__)
     parser.add_argument('--dataset', '-d', type=str, dest='dataset',
         help='This is the Gibson dataset we want to do cross validation on')
     parser.add_argument('--basepath', '-o', type=str, dest='basepath',
