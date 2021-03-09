@@ -887,15 +887,22 @@ class Concentration(pl.variables.Gamma):
         k = len(clustering)
         n = self.G.data.n_taxa
         for _ in range(self.n_iter):
-            #first sample eta from a beta distribution
-            eta = npr.beta(self.value+1,n)
-            #sample alpha from a mixture of gammas
-            pi_eta = [0.0, n]
-            pi_eta[0] = (self.prior.shape.value+k-1.)/(1/(self.prior.scale.value)-np.log(eta))
-            self.scale.value =  1/(1/self.prior.scale.value - np.log(eta))
-            self.shape.value = self.prior.shape.value + k
-            if np.random.choice([0,1], p=pi_eta/np.sum(pi_eta)) != 0:
-                self.shape.value -= 1
+            # =======================================
+            # Escobar and West -> Mixture of gammas
+            # =======================================
+            # Teh et al (Equations 47, 48, 49):
+            #   Equivalent formulation -- Sample a Bernoulli RV, and subtract one if `tails`.
+            # =======================================
+            bernoulli_p = n / (n + self.value)
+            coin = npr.binomial(n=1, p=bernoulli_p)
+
+            # Auxiliary Beta sample.
+            eta = npr.beta(self.value+1, n)
+
+            # sample alpha from a mixture of gammas.
+            # `scale` is inverted because Escobar+West uses `b` as the `rate` (inverse scale) parameter.
+            self.scale.value = 1 / (1/self.prior.scale.value - np.log(eta))
+            self.shape.value = self.prior.shape.value + k - (1 - coin)
             self.sample()
 
     def visualize(self, path: str, f: IO, section: str='posterior') -> IO:
@@ -1588,6 +1595,8 @@ class ClusterAssignments(pl.graph.Node):
             self.gibbs_update_single_taxon_slow_fast(oidx=oidx)
             iii += 1
         self._strtime = time.time() - start_time
+        logger.info("Iteration {}".format(self.sample_iter))
+        logger.info(self.clustering)
     
     # @profile
     def gibbs_update_single_taxon_slow_fast(self, oidx: int):

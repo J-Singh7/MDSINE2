@@ -434,7 +434,7 @@ class BaseMCMC(BaseModel):
             start = time.time()
             intermediate_time = time.time()
 
-            for i in tqdm(range(self.start_step, self.n_samples), file=sys.stdout):
+            for i in tqdm(range(self.start_step, self.n_samples), file=sys.stderr):
                 logger.debug("Iteration {} / {}".format(i+1, self.n_samples))
                 self.sample_iter = i
 
