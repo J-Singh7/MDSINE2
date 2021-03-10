@@ -242,7 +242,7 @@ def build_prior_mean(G: Graph, order: List[str], shape: Tuple=None) -> np.ndarra
         a = a.reshape(*shape)
     return a
 
-def sample_categorical_log(log_p: Iterator[float]) -> int:
+def sample_categorical_log(log_p: List[float]) -> int:
     '''Generate one sample from a categorical distribution with event
     probabilities provided in unnormalized log-space.
 
@@ -258,10 +258,17 @@ def sample_categorical_log(log_p: Iterator[float]) -> int:
         event from log_p.
     '''
     try:
-        exp_sample = math.log(random.random())
-        events = np.logaddexp.accumulate(np.hstack([[-np.inf], log_p]))
-        events -= events[-1]
-        return next(x[0]-1 for x in enumerate(events) if x[1] >= exp_sample)
+        logp = np.array(log_p)
+        p = np.exp(logp - scipy.special.logsumexp(logp))
+        return np.random.choice(
+            a=len(p),
+            size=1,
+            p=p
+        )[-1]
+        # exp_sample = math.log(random.random())
+        # events = np.logaddexp.accumulate(np.hstack([[-np.inf], log_p]))
+        # events -= events[-1]
+        # return next(x[0]-1 for x in enumerate(events) if x[1] >= exp_sample)
     except:
         logger.critical('CRASHED IN `sample_categorical_log`:\nlog_p{}'.format(
             log_p))
@@ -813,8 +820,7 @@ class Concentration(pl.variables.Gamma):
     n_iter : int
         How many times to resample
     '''
-    def __init__(self, prior: variables.Gamma, value: Union[float, int]=None, 
-        n_iter: int=None, **kwargs):
+    def __init__(self, prior: variables.Gamma, value: Union[float, int]=None, n_iter=None, **kwargs):
         kwargs['name'] = STRNAMES.CONCENTRATION
         # initialize shape and scale as the same as the priors
         # we will be updating this later
@@ -822,7 +828,7 @@ class Concentration(pl.variables.Gamma):
             dtype=float, **kwargs)
         self.add_prior(prior)
 
-    def initialize(self, value_option: str, hyperparam_option: str, n_iter: int=None, 
+    def initialize(self, value_option: str, hyperparam_option: str, n_iter: int=None,
         value: Union[int, float]=None, shape: Union[int, float]=None, scale: Union[int, float]=None, 
         delay: int=0):
         '''Initialize the hyperparameters of the beta prior
@@ -855,12 +861,10 @@ class Concentration(pl.variables.Gamma):
         if hyperparam_option == 'manual':
             self.prior.shape.override_value(shape)
             self.prior.scale.override_value(scale)
-            self.n_iter = n_iter
 
         elif hyperparam_option in ['diffuse', 'auto']:
             self.prior.shape.override_value(1e-5)
             self.prior.scale.override_value(1e5)
-            self.n_iter = 20
         else:
             raise ValueError('hyperparam_option `{}` not recognized'.format(hyperparam_option))
 
@@ -886,24 +890,24 @@ class Concentration(pl.variables.Gamma):
         clustering = self.G[STRNAMES.CLUSTER_INTERACTION_VALUE].clustering
         k = len(clustering)
         n = self.G.data.n_taxa
-        for _ in range(self.n_iter):
-            # =======================================
-            # Escobar and West -> Mixture of gammas
-            # =======================================
-            # Teh et al (Equations 47, 48, 49):
-            #   Equivalent formulation -- Sample a Bernoulli RV, and subtract one if `tails`.
-            # =======================================
-            bernoulli_p = n / (n + self.value)
-            coin = npr.binomial(n=1, p=bernoulli_p)
 
-            # Auxiliary Beta sample.
-            eta = npr.beta(self.value+1, n)
+        # =======================================
+        # Escobar and West -> Mixture of gammas
+        # =======================================
+        # Teh et al (Equations 47, 48, 49):
+        #   Equivalent formulation -- Sample a Bernoulli RV, and subtract one if `tails`.
+        # =======================================
+        bernoulli_p = n / (n + self.value)
+        coin = npr.binomial(n=1, p=bernoulli_p)
 
-            # sample alpha from a mixture of gammas.
-            # `scale` is inverted because Escobar+West uses `b` as the `rate` (inverse scale) parameter.
-            self.scale.value = 1 / (1/self.prior.scale.value - np.log(eta))
-            self.shape.value = self.prior.shape.value + k - (1 - coin)
-            self.sample()
+        # Auxiliary Beta sample.
+        eta = npr.beta(self.value+1, n)
+
+        # sample alpha from a mixture of gammas.
+        # `scale` is inverted because Escobar+West uses `b` as the `rate` (inverse scale) parameter.
+        self.scale.value = 1 / (1/self.prior.scale.value - np.log(eta))
+        self.shape.value = self.prior.shape.value + k - (1 - coin)
+        self.sample()
 
     def visualize(self, path: str, f: IO, section: str='posterior') -> IO:
         '''Render the traces in the folder `basepath` and write the 
@@ -1616,6 +1620,8 @@ class ClusterAssignments(pl.graph.Node):
         curr_cluster = self.clustering.idx2cid[oidx]
         concentration = self.concentration.value
 
+        debug_cluster_ordering = []
+
         # start as a dictionary then send values to `sample_categorical_log`
         LOG_P = []
         LOG_KEYS = []
@@ -1625,10 +1631,14 @@ class ClusterAssignments(pl.graph.Node):
         # If the element is already in its own cluster, use the new cluster case
         if self.clustering.clusters[curr_cluster].size == 1:
             a = np.log(concentration/self.m)
+            is_alone_in_cluster = True
         else:
             a = np.log(self.clustering.clusters[curr_cluster].size - 1)
+            is_alone_in_cluster = False
         LOG_P.append(a + self.calculate_marginal_loglikelihood_slow_fast_sparse())
         LOG_KEYS.append(curr_cluster)
+
+        debug_cluster_ordering.append(self.clustering.clusters[curr_cluster])
 
         # Calculate going to every other cluster
         # ======================================
@@ -1647,24 +1657,44 @@ class ClusterAssignments(pl.graph.Node):
                 self.calculate_marginal_loglikelihood_slow_fast_sparse())
             LOG_KEYS.append(cid)
 
+            debug_cluster_ordering.append(self.clustering.clusters[cid])
+
 
         # Calculate new cluster
         # =====================
-        cid=self.clustering.make_new_cluster_with(idx=oidx)
-        self.G[STRNAMES.CLUSTER_INTERACTION_INDICATOR].update_cnt_indicators()
-        self.G.data.design_matrices[STRNAMES.CLUSTER_INTERACTION_VALUE].M.build()
-        if self._there_are_perturbations:
-            self.G.data.design_matrices[STRNAMES.PERT_VALUE].M.build()
-        
-        LOG_KEYS.append(cid)
-        LOG_P.append(np.log(concentration/self.m) + \
-            self.calculate_marginal_loglikelihood_slow_fast_sparse())
+        if not is_alone_in_cluster:
+            cid = self.clustering.make_new_cluster_with(idx=oidx)
+            self.G[STRNAMES.CLUSTER_INTERACTION_INDICATOR].update_cnt_indicators()
+            self.G.data.design_matrices[STRNAMES.CLUSTER_INTERACTION_VALUE].M.build()
+            if self._there_are_perturbations:
+                self.G.data.design_matrices[STRNAMES.PERT_VALUE].M.build()
+
+            LOG_KEYS.append(cid)
+            LOG_P.append(np.log(concentration/self.m) + \
+                self.calculate_marginal_loglikelihood_slow_fast_sparse())
+
+            debug_cluster_ordering.append(self.clustering.clusters[cid])
 
         # Sample the assignment
         # =====================
         idx = sample_categorical_log(LOG_P)
         assigned_cid = LOG_KEYS[idx]
         curr_clus = self.clustering.idx2cid[oidx]
+
+        if oidx == 2:
+            logp = np.array(LOG_P)
+            p = np.exp(logp - scipy.special.logsumexp(logp))
+            print("alpha = {}".format(concentration))
+            print("cluster prob of {}:".format(self.G.data.taxa[oidx].name))
+            for prob, clust in zip(p, debug_cluster_ordering):
+                print("{} -- [{}]".format(
+                    prob,
+                    ",".join([self.G.data.taxa[oid].name for oid in clust.members])
+                ))
+            print("Assigned to: {}".format(
+                ",".join([self.G.data.taxa[oid].name for oid in debug_cluster_ordering[idx]])
+            ))
+
 
         if assigned_cid != curr_clus:
             self.clustering.move_item(idx=oidx,cid=assigned_cid)
@@ -6180,7 +6210,7 @@ class Growth(pl.variables.TruncatedNormal):
             low_x, high_x = ax_posterior.get_xlim()
 
             arr = np.zeros(len(prior_std_trace), dtype=float)
-            for i in range(len(prior_std_trace)):
+            for i in range(min(len(prior_std_trace), len(prior_mean_trace))):
                 arr[i] = pl.random.truncnormal.sample(loc=prior_mean_trace[i], scale=prior_std_trace[i], 
                     low=self.low, high=self.high)
             visualization.render_trace(var=arr, plt_type='hist', 
@@ -6568,7 +6598,7 @@ class SelfInteractions(pl.variables.TruncatedNormal):
             low_x, high_x = ax_posterior.get_xlim()
 
             arr = np.zeros(len(prior_std_trace), dtype=float)
-            for i in range(len(prior_std_trace)):
+            for i in range(min(len(prior_std_trace), len(prior_mean_trace))):
                 arr[i] = pl.random.truncnormal.sample(loc=prior_mean_trace[i], scale=prior_std_trace[i], 
                     low=self.low, high=self.high)
             visualization.render_trace(var=arr, plt_type='hist', 

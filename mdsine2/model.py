@@ -2,6 +2,9 @@
 '''
 import numpy as np
 import time
+
+from tqdm import tqdm
+
 from mdsine2.logger import logger
 
 from typing import Union, Dict, Iterator, Tuple, List, Any
@@ -207,13 +210,8 @@ class gLVDynamicsSingleClustering(pl.dynamics.BaseDynamics):
         dyn = gLVDynamicsSingleClustering(growth=None, interactions=None, sim_max=sim_max,
             start_day=times[0], perturbation_ends=perturbation_ends, 
             perturbation_starts=perturbation_starts)
-        start_time = time.time()
         initial_conditions = initial_conditions.reshape(-1,1)
-        for gibb in range(growths.shape[0]):
-            if gibb % 5 == 0 and gibb > 0:
-                logger.info('{}/{} - {}'.format(gibb,growths.shape[0],
-                    time.time()-start_time))
-                start_time = time.time()
+        for gibb in tqdm(range(growths.shape[0])):
             dyn.growth = growths[gibb]
             dyn.interactions = interactions[gibb]
             if perturbations is not None:

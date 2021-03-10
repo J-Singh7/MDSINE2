@@ -335,7 +335,7 @@ class MDSINE2ModelConfig(_BaseModelConfig):
             STRNAMES.CONCENTRATION: {
                 'value_option': 'prior-mean',
                 'hyperparam_option': 'diffuse',
-                'delay': 0, 'n_iter': 20},
+                'delay': 0},
             STRNAMES.CLUSTERING: {
                 'value_option': 'spearman', #'fixed-clustering',
                 'delay': 2,
