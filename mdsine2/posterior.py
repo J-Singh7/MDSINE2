@@ -701,6 +701,7 @@ class ProcessVarGlobal(pl.variables.SICS):
             value = self.prior.mean()
         else:
             raise ValueError('`value_option` ({}) not recognized'.format(value_option))
+        # self.value = value * np.ones(shape=self.G.data.n_taxa, dtype=np.float)
         self.value = value
         
         self.rebuild_diag()
@@ -734,6 +735,12 @@ class ProcessVarGlobal(pl.variables.SICS):
         '''Builds up the process variance diagonal that we use to make the matrix
         '''
         a = self.value / self.G.data.dt_vec
+
+        # n_taxa = self.G.data.n_taxa
+        # dt = self.G.data.dt_vec
+        # a = np.zeros(shape=len(dt))
+        # for oidx in range(n_taxa):
+        #     a[oidx::n_taxa] = self.value[oidx] / dt[oidx::n_taxa]
         if self.G.data.zero_inflation_transition_policy is not None:
             a = a[self.G.data.rows_to_include_zero_inflation]
         
@@ -2709,18 +2716,23 @@ class FilteringLogMP(pl.graph.Node):
         # Set the essential timepoints (check to see if there is any missing data)
         if essential_timepoints is not None:
             logger.info('Setting up the essential timepoints')
-            if pl.isstr(essential_timepoints):
-                if essential_timepoints in ['auto', 'union']:
-                    essential_timepoints = set()
-                    for ts in self.G.data.times:
-                        essential_timepoints = essential_timepoints.union(set(list(ts)))
-                    essential_timepoints = np.sort(list(essential_timepoints))
-                else:
-                    raise ValueError('`essential_timepoints` ({}) not recognized'.format(
-                        essential_timepoints))
-            elif not pl.isarray(essential_timepoints):
-                raise TypeError('`essential_timepoints` ({}) must be a str or an array'.format(
-                    type(essential_timepoints)))
+            if type(essential_timepoints) is str and essential_timepoints in ['auto', 'union']:
+                essential_timepoints = set()
+                for ts in self.G.data.times:
+                    essential_timepoints = essential_timepoints.union(set(list(ts)))
+                essential_timepoints = np.sort(list(essential_timepoints))
+            elif (type(essential_timepoints) is tuple) and (essential_timepoints[0] == "union-plus"):
+                extra_values = essential_timepoints[1]
+                if not (type(extra_values) is list):
+                    raise TypeError("Essential timepoints `union-plus` argument should be a List of values.")
+                essential_timepoints = set()
+                for ts in self.G.data.times:
+                    essential_timepoints = essential_timepoints.union(set(list(ts)))
+                essential_timepoints.update(extra_values)
+                essential_timepoints = np.sort(list(essential_timepoints))
+            else:
+                raise ValueError('`essential_timepoints` ({}) not recognized'.format(
+                    essential_timepoints))
             logger.info('Essential timepoints: {}'.format(essential_timepoints))
             self.G.data.set_timepoints(times=essential_timepoints, eps=None, reset_timepoints=True)
             self.x.reset_value_size()

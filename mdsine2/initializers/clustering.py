@@ -116,7 +116,7 @@ def initialize_mdsine_from_perturbations(
 
     proxy_clustering_obj = mcmc_proxy.graph[STRNAMES.CLUSTERING].clustering
     pert_means = np.vstack(
-        [pert.get_trace_from_disk().mean(axis=0) for pert in mcmc_proxy.graph.perturbations]
+        [pert.get_trace_from_disk()[n_samples // 2:, :].mean(axis=0) for pert in mcmc_proxy.graph.perturbations]
     )
     taxa_with_pert_signs = [
         (
@@ -149,7 +149,7 @@ def initialize_mdsine_from_perturbations(
                 ] for taxa_idx in cluster
             ])
             logger.info("Initializing cluster {} with perturbation ({})={}".format(
-                cluster,
+                [mcmc.graph.data.taxa[oid].name for oid in cluster],
                 pert.name,
                 pert_value
             ))
